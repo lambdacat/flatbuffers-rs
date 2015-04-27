@@ -54,3 +54,8 @@ Then you need to add the correct crate imports to the top-level of your crate.
 extern crate flatbuffers;
 extern crate num;
 ```
+
+## Limitations
+
+Right now the modded compiler is pretty sloppy, and it doesn't generate `Verifier`s like it does for
+the other languages. I'm working on this =].
