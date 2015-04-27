@@ -1,0 +1,9 @@
+[package]
+name = "flatbuffers"
+version = "0.1.0"
+authors = ["Sam Payson <scpayson@gmail.com>"]
+
+[dependencies]
+
+num = "0.1.22"
+
