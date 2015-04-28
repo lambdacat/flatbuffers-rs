@@ -223,7 +223,7 @@ unsafe fn write_scalar<T: Endian>(buf: *mut u8, val: T) {
     val.write_le(buf)
 }
 
-pub trait Indirect<I> {
+pub trait Indirect<I>: marker::PhantomFn<Self> {
     unsafe fn read(buf: *const u8, idx: usize) -> I;
 }
 
@@ -312,6 +312,13 @@ impl<I, T: Indirect<I>> Vector<T, I> {
             Some(unsafe { <T as Indirect<I>>::read(self.data(), idx) })
         } else {
             None
+        }
+    }
+
+    pub fn iter<'x>(&'x self) -> VecIter<'x, I, T> {
+        VecIter {
+            vec: self,
+            idx: 0,
         }
     }
 }
