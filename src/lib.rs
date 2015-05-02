@@ -223,7 +223,7 @@ unsafe fn write_scalar<T: Endian>(buf: *mut u8, val: T) {
     val.write_le(buf)
 }
 
-pub trait Indirect<I>: marker::PhantomFn<Self> {
+pub trait Indirect<I> {
     unsafe fn read(buf: *const u8, idx: usize) -> I;
 }
 
