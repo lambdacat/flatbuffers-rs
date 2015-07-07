@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO: Remove this when the module is finished.
-#![allow(dead_code)]
-
 extern crate num;
 
 use std::cmp::Eq;
@@ -184,12 +181,6 @@ unsafe fn index<T>(base: *const u8, idx: usize) -> *const u8 {
     mem::transmute::<usize, *const u8>(base_us + idx * mem::size_of::<T>())
 }
 
-unsafe fn index_mut<T>(base: *mut u8, idx: usize) -> *mut u8 {
-    let base_us = mem::transmute::<*mut u8, usize>(base);
-
-    mem::transmute::<usize, *mut u8>(base_us + idx * mem::size_of::<T>())
-}
-
 unsafe fn offset(base: *const u8, off: usize) -> *const u8 {
     let base_us = mem::transmute::<*const u8, usize>(base);
 
@@ -206,12 +197,6 @@ unsafe fn soffset(base: *const u8, off: isize) -> *const u8 {
     let base_is = mem::transmute::<*const u8, isize>(base);
 
     mem::transmute::<isize, *const u8>(base_is + off)
-}
-
-unsafe fn soffset_mut(base: *mut u8, off: isize) -> *mut u8 {
-    let base_is = mem::transmute::<*mut u8, isize>(base);
-
-    mem::transmute::<isize, *mut u8>(base_is + off)
 }
 
 
