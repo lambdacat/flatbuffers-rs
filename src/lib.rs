@@ -27,8 +27,8 @@ use std::str;
 
 fn view_slice_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
-        let ptr: *const u8 = mem::transmute(&v[0]);
-        let len            = mem::size_of::<T>() * v.len();
+        let ptr = mem::transmute::<&T, *const u8>(&v[0]);
+        let len = mem::size_of::<T>() * v.len();
 
         slice::from_raw_parts(ptr, len)
     }
@@ -36,8 +36,8 @@ fn view_slice_bytes<T>(v: &[T]) -> &[u8] {
 
 fn view_bytes<T>(t: &T) -> &[u8] {
     unsafe {
-        let ptr: *const u8 = mem::transmute(t);
-        let len            = mem::size_of::<T>();
+        let ptr = mem::transmute::<&T, *const u8>(t);
+        let len = mem::size_of::<T>();
 
         slice::from_raw_parts(ptr, len)
     }
@@ -77,12 +77,12 @@ macro_rules! impl_endian_for {
     ($t:ty) => {
         impl Endian for $t {
             unsafe fn read_le(buf: *const u8) -> $t {
-                let ptr: &$t = mem::transmute(buf);
+                let ptr = mem::transmute::<*const u8, &$t>(buf);
                 num::PrimInt::from_le(*ptr)
             }
 
             unsafe fn write_le(self, buf: *mut u8) {
-                let ptr: &mut $t = mem::transmute(buf);
+                let ptr = mem::transmute::<*mut u8, &mut $t>(buf);
                 *ptr = num::PrimInt::to_le(self);
             }
 
@@ -108,26 +108,26 @@ impl_endian_for!(isize);
 impl Endian for f32 {
     fn from_le(self) -> f32 {
         unsafe {
-            let u: u32 = mem::transmute(self);
-            mem::transmute(num::PrimInt::from_le(u))
+            let u = mem::transmute::<f32, u32>(self);
+            mem::transmute::<u32, f32>(num::PrimInt::from_le(u))
         }
     }
 
     fn to_le(self) -> f32 {
         unsafe {
-            let u: u32 = mem::transmute(self);
-            mem::transmute(num::PrimInt::to_le(u))
+            let u = mem::transmute::<f32, u32>(self);
+            mem::transmute::<u32, f32>(num::PrimInt::to_le(u))
         }
     }
 
     unsafe fn read_le(buf: *const u8) -> f32 {
-        let ptr: &u32 = mem::transmute(buf);
-        mem::transmute(num::PrimInt::from_le(*ptr))
+        let ptr = mem::transmute::<*const u8, &u32>(buf);
+        mem::transmute::<u32, f32>(num::PrimInt::from_le(*ptr))
     }
 
     unsafe fn write_le(self, buf: *mut u8) {
-        let ptr: &mut u32 = mem::transmute(buf);
-        *ptr = num::PrimInt::to_le(mem::transmute(self));
+        let ptr = mem::transmute::<*mut u8, &mut u32>(buf);
+        *ptr = num::PrimInt::to_le(mem::transmute::<f32, u32>(self));
     }
 }
 
@@ -135,26 +135,26 @@ impl Endian for f32 {
 impl Endian for f64 {
     fn from_le(self) -> f64 {
         unsafe {
-            let u: u64 = mem::transmute(self);
-            mem::transmute(num::PrimInt::from_le(u))
+            let u = mem::transmute::<f64, u64>(self);
+            mem::transmute::<u64, f64>(num::PrimInt::from_le(u))
         }
     }
 
     fn to_le(self) -> f64 {
         unsafe {
-            let u: u64 = mem::transmute(self);
-            mem::transmute(num::PrimInt::to_le(u))
+            let u = mem::transmute::<f64, u64>(self);
+            mem::transmute::<u64, f64>(num::PrimInt::to_le(u))
         }
     }
 
     unsafe fn read_le(buf: *const u8) -> f64 {
-        let ptr: &u64 = mem::transmute(buf);
-        mem::transmute(num::PrimInt::from_le(*ptr))
+        let ptr = mem::transmute::<*const u8, &u64>(buf);
+        mem::transmute::<u64, f64>(num::PrimInt::from_le(*ptr))
     }
 
     unsafe fn write_le(self, buf: *mut u8) {
-        let ptr: &mut u64 = mem::transmute(buf);
-        *ptr = num::PrimInt::to_le(mem::transmute(self));
+        let ptr = mem::transmute::<*mut u8, &mut u64>(buf);
+        *ptr = num::PrimInt::to_le(mem::transmute::<f64, u64>(self));
     }
 }
 
@@ -168,50 +168,50 @@ impl<T> Endian for Offset<T> {
     }
 
     unsafe fn read_le(buf: *const u8) -> Offset<T> {
-        let ptr: &UOffset = mem::transmute(buf);
+        let ptr = mem::transmute::<*const u8, &UOffset>(buf);
         Offset::new(num::PrimInt::from_le(*ptr))
     }
 
     unsafe fn write_le(self, buf: *mut u8) {
-        let ptr: &mut UOffset = mem::transmute(buf);
+        let ptr = mem::transmute::<*mut u8, &mut UOffset>(buf);
         *ptr = num::PrimInt::to_le(self.inner)
     }
 }
 
 unsafe fn index<T>(base: *const u8, idx: usize) -> *const u8 {
-    let base_us: usize = mem::transmute(base);
+    let base_us = mem::transmute::<*const u8, usize>(base);
 
-    mem::transmute(base_us + idx * mem::size_of::<T>())
+    mem::transmute::<usize, *const u8>(base_us + idx * mem::size_of::<T>())
 }
 
 unsafe fn index_mut<T>(base: *mut u8, idx: usize) -> *mut u8 {
-    let base_us: usize = mem::transmute(base);
+    let base_us = mem::transmute::<*mut u8, usize>(base);
 
-    mem::transmute(base_us + idx * mem::size_of::<T>())
+    mem::transmute::<usize, *mut u8>(base_us + idx * mem::size_of::<T>())
 }
 
 unsafe fn offset(base: *const u8, off: usize) -> *const u8 {
-    let base_us: usize = mem::transmute(base);
+    let base_us = mem::transmute::<*const u8, usize>(base);
 
-    mem::transmute(base_us + off)
+    mem::transmute::<usize, *const u8>(base_us + off)
 }
 
 unsafe fn offset_mut(base: *mut u8, off: usize) -> *mut u8 {
-    let base_us: usize = mem::transmute(base);
+    let base_us = mem::transmute::<*mut u8, usize>(base);
 
-    mem::transmute(base_us + off)
+    mem::transmute::<usize, *mut u8>(base_us + off)
 }
 
 unsafe fn soffset(base: *const u8, off: isize) -> *const u8 {
-    let base_is: isize = mem::transmute(base);
+    let base_is = mem::transmute::<*const u8, isize>(base);
 
-    mem::transmute(base_is + off)
+    mem::transmute::<isize, *const u8>(base_is + off)
 }
 
 unsafe fn soffset_mut(base: *mut u8, off: isize) -> *mut u8 {
-    let base_is: isize = mem::transmute(base);
+    let base_is = mem::transmute::<*mut u8, isize>(base);
 
-    mem::transmute(base_is + off)
+    mem::transmute::<isize, *mut u8>(base_is + off)
 }
 
 
@@ -230,7 +230,7 @@ pub trait Indirect<I> {
 impl<T: Copy> Indirect<T> for T {
     unsafe fn read(buf: *const u8, idx: usize) -> T {
         let off = idx * mem::size_of::<T>();
-        let ptr: &T = mem::transmute(offset(buf, off));
+        let ptr = mem::transmute::<*const u8, &T>(offset(buf, off));
 
         *ptr
     }
@@ -255,14 +255,14 @@ pub struct ByRef<T>(marker::PhantomData<T>);
 
 impl <'x, T> Indirect<&'x T> for ByRef<T> {
     unsafe fn read(buf: *const u8, idx: usize) -> &'x T {
-        mem::transmute(index::<T>(buf, idx))
+        mem::transmute::<*const u8, &'x T>(index::<T>(buf, idx))
     }
 }
 
 impl<'x, T> Indirect<&'x T> for Offset<T> {
     unsafe fn read(buf: *const u8, idx: usize) -> &'x T {
         let off: UOffset = read_scalar(index::<UOffset>(buf, idx));
-        mem::transmute(offset(buf, off as usize))
+        mem::transmute::<*const u8, &'x T>(offset(buf, off as usize))
     }
 }
 
@@ -300,7 +300,7 @@ impl<'x, I, T: Indirect<I>> Iterator for VecIter<'x, I, T> {
 
 impl<I, T: Indirect<I>> Vector<T, I> {
     unsafe fn data(&self) -> *const u8 {
-        index::<UOffset>(mem::transmute(self), 1)
+        index::<UOffset>(mem::transmute::<&Vector<T, I>, *const u8>(self), 1)
     }
 
     pub fn len(&self) -> usize {
@@ -373,7 +373,7 @@ pub struct Table;
 impl Table {
     fn get_optional_field_offset(&self, field: VOffset) -> Option<VOffset> {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&Table, *const u8>(self);
 
             // I'm not suire why it's subtraction, instead of addition, but this is what they have in
             // the C++ code.
@@ -396,7 +396,7 @@ impl Table {
 
         self.get_optional_field_offset(field)
             .map_or(def, |voffs| unsafe {
-                let base = mem::transmute(self);
+                let base = mem::transmute::<&Table, *const u8>(self);
                 read_scalar(offset(base, voffs as usize))
             } )
     }
@@ -404,37 +404,37 @@ impl Table {
     pub fn get_ref<T>(&self, field: VOffset) -> Option<&T> {
         self.get_optional_field_offset(field)
             .map(|voffs| unsafe {
-                let base = mem::transmute(self);
+                let base = mem::transmute::<&Table, *const u8>(self);
                 let p    = offset(base, voffs as usize);
                 let offs: UOffset = read_scalar(p);
-                mem::transmute(offset(p, offs as usize))
-            } )
+                mem::transmute::<*const u8, &T>(offset(p, offs as usize))
+            })
     }
 
     pub fn get_ref_mut<T>(&mut self, field: VOffset) -> Option<&mut T> {
         self.get_optional_field_offset(field)
             .map(|voffs| unsafe {
-                let base = mem::transmute(self);
+                let base = mem::transmute::<&mut Table, *mut u8>(self);
                 let p    = offset_mut(base, voffs as usize);
                 let offs: UOffset = read_scalar(p);
-                mem::transmute(offset_mut(p, offs as usize))
-            } )
+                mem::transmute::<*mut u8, &mut T>(offset_mut(p, offs as usize))
+            })
     }
 
     pub fn get_struct<T>(&self, field: VOffset) -> Option<&T> {
         self.get_optional_field_offset(field)
             .map(|voffs| unsafe {
-                let base = mem::transmute(self);
-                mem::transmute(offset(base, voffs as usize))
-            } )
+                let base = mem::transmute::<&Table, *const u8>(self);
+                mem::transmute::<*const u8, &T>(offset(base, voffs as usize))
+            })
     }
 
     pub fn get_struct_mut<T>(&mut self, field: VOffset) -> Option<&mut T> {
         self.get_optional_field_offset(field)
             .map(|voffs| unsafe {
-                let base = mem::transmute(self);
-                mem::transmute(offset_mut(base, voffs as usize))
-            } )
+                let base = mem::transmute::<&mut Table, *mut u8> (self);
+                mem::transmute::<*mut u8, &mut T>(offset_mut(base, voffs as usize))
+            })
     }
 
     pub fn set_field<T: Endian>(&mut self, field: VOffset, val: T) {
@@ -443,7 +443,7 @@ impl Table {
             // beforehand by calling `check_field`.
             let voffs = self.get_optional_field_offset(field).unwrap();
 
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&mut Table, *mut u8>(self);
 
             write_scalar(offset_mut(base, voffs as usize), val);
         }
@@ -463,52 +463,52 @@ pub struct Struct;
 impl Struct {
     pub fn get_field<T: Endian>(&self, off: UOffset) -> T {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&Struct, *const u8>(self);
             read_scalar(offset(base, off as usize))
         }
     }
 
     pub fn get_ref<T>(&self, off: UOffset) -> &T {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&Struct, *const u8>(self);
             let p    = offset(base, off as usize);
 
-            mem::transmute(offset(p, read_scalar::<UOffset>(p) as usize))
+            mem::transmute::<*const u8, &T>(offset(p, read_scalar::<UOffset>(p) as usize))
         }
     }
 
-    pub fn get_ref_mut<T>(&self, off: UOffset) -> &T {
+    pub fn get_ref_mut<T>(&mut self, off: UOffset) -> &mut T {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&mut Struct, *mut u8>(self);
             let p    = offset_mut(base, off as usize);
 
-            mem::transmute(offset_mut(p, read_scalar::<UOffset>(p) as usize))
+            mem::transmute::<*mut u8, &mut T>(offset_mut(p, read_scalar::<UOffset>(p) as usize))
         }
     }
 
     pub fn get_struct<T>(&self, off: UOffset) -> &T {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&Struct, *const u8>(self);
 
-            mem::transmute(offset(base, off as usize))
+            mem::transmute::<*const u8, &T>(offset(base, off as usize))
         }
     }
 
-    pub fn get_struct_mut<T>(&mut self, off: UOffset) -> &T {
+    pub fn get_struct_mut<T>(&mut self, off: UOffset) -> &mut T {
         unsafe {
-            let base = mem::transmute(self);
+            let base = mem::transmute::<&mut Struct, *mut u8>(self);
 
-            mem::transmute(offset_mut(base, off as usize))
+            mem::transmute::<*mut u8, &mut T>(offset_mut(base, off as usize))
         }
     }
 }
 
 pub fn get_root<T>(buf: &[u8]) -> &T {
     unsafe {
-        let base         = mem::transmute(&buf[0]);
+        let base         = buf.as_ptr();
         let off: UOffset = Endian::read_le(base);
 
-        mem::transmute(offset(base, off as usize))
+        mem::transmute::<*const u8, &T>(offset(base, off as usize))
     }
 }
 
@@ -752,8 +752,8 @@ impl FlatBufferBuilder {
         self.offset_buf.clear();
 
         let vt1: &[VOffset] = unsafe {
-            let vt_ptr: *const VOffset = mem::transmute(&self.buf.data()[0]);
-            let vt_len: usize          = *vt_ptr as usize;
+            let vt_ptr = mem::transmute::<&u8, *const VOffset>(&self.buf.data()[0]);
+            let vt_len = *vt_ptr as usize;
             slice::from_raw_parts(vt_ptr, vt_len)
         };
 
@@ -761,8 +761,8 @@ impl FlatBufferBuilder {
 
         for &off in self.vtables.iter() {
             let vt2: &[VOffset] = unsafe {
-                let vt_ptr: *const VOffset = mem::transmute(&self.buf.data_at(off as usize)[0]);
-                let vt_len: usize          = *vt_ptr as usize;
+                let vt_ptr = mem::transmute::<&u8, *const VOffset>(&self.buf.data_at(off as usize)[0]);
+                let vt_len = *vt_ptr as usize;
                 slice::from_raw_parts(vt_ptr, vt_len)
             };
 
@@ -842,8 +842,8 @@ impl FlatBufferBuilder {
 
         v.sort_by(|&a_off, &b_off| {
             unsafe {
-                let a: &T = mem::transmute(&self.buf.data_at(a_off.inner as usize)[0]);
-                let b: &T = mem::transmute(&self.buf.data_at(b_off.inner as usize)[0]);
+                let a = mem::transmute::<&u8, &T>(&self.buf.data_at(a_off.inner as usize)[0]);
+                let b = mem::transmute::<&u8, &T>(&self.buf.data_at(b_off.inner as usize)[0]);
 
                 a.key_cmp(b)
             }
