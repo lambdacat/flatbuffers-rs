@@ -531,8 +531,15 @@ impl VecDownward {
 
     fn data(&self) -> &[u8] { &self.inner[self.next..] }
 
+    fn data_mut(&mut self) -> &mut [u8] { &mut self.inner[self.next..] }
+
     fn data_at(&self, offset: usize) -> &[u8] {
         &self.inner[self.inner.len() - offset..]
+    }
+
+    fn data_at_mut(&mut self, offset: usize) -> &mut [u8] {
+        let len = self.inner.len();
+        &mut self.inner[len - offset..]
     }
 
     fn len(&self) -> usize { self.inner.len() - self.next }
@@ -735,7 +742,8 @@ impl FlatBufferBuilder {
             let pos = (vtable_offset_loc as VOffset) - (field_loc.off as VOffset);
 
             unsafe { 
-                let buf_ptr: *mut u8 = mem::transmute(&self.buf.data()[field_loc.id as usize]);
+                let buf_ref = &mut self.buf.data_mut()[field_loc.id as usize];
+                let buf_ptr = mem::transmute::<&mut u8, *mut u8>(buf_ref);
                 assert_eq!(read_scalar::<VOffset>(buf_ptr), 0);
                 write_scalar(buf_ptr, pos);
             }
@@ -772,7 +780,8 @@ impl FlatBufferBuilder {
 
         
         unsafe {
-            write_scalar(mem::transmute(&self.buf.data_at(vtable_offset_loc as usize)[0]),
+            let vt_buf = &mut self.buf.data_at_mut(vtable_offset_loc as usize)[0];
+            write_scalar(mem::transmute::<*mut u8, &mut u8>(vt_buf),
                 (vt_use as SOffset) - (vtable_offset_loc as SOffset));
         }
 
@@ -850,7 +859,7 @@ impl FlatBufferBuilder {
         let off = self.end_vector(len);
 
         let slc = unsafe {
-            let ptr = mem::transmute(&self.buf.data_at(buf)[0]);
+            let ptr = mem::transmute::<&mut u8, *mut T>(&mut self.buf.data_at_mut(buf)[0]);
 
             slice::from_raw_parts_mut(ptr, len)
         };
