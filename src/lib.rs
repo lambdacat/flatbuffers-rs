@@ -308,9 +308,9 @@ impl<I, T: Indirect<I>> Vector<T, I> {
     }
 }
 
-pub type String = Vector<i8>;
+pub type Str = Vector<i8>;
 
-impl AsRef<str> for String {
+impl AsRef<str> for Str {
     fn as_ref(&self) -> &str {
         let slc = unsafe {
             let ptr = self.data();
@@ -330,24 +330,24 @@ impl AsRef<str> for String {
     }
 }
 
-impl PartialEq for String {
-    fn eq(&self, other: &String) -> bool {
+impl PartialEq for Str {
+    fn eq(&self, other: &Str) -> bool {
         let (a, b): (&str, &str) = (self.as_ref(), other.as_ref());
         a.eq(b)
     }
 }
 
-impl PartialOrd for String {
-    fn partial_cmp(&self, other: &String) -> Option<cmp::Ordering> {
+impl PartialOrd for Str {
+    fn partial_cmp(&self, other: &Str) -> Option<cmp::Ordering> {
         let (a, b): (&str, &str) = (self.as_ref(), other.as_ref());
         a.partial_cmp(b)
     }
 }
 
-impl Eq for String {}
+impl Eq for Str {}
 
-impl Ord for String {
-    fn cmp(&self, other: &String) -> cmp::Ordering {
+impl Ord for Str {
+    fn cmp(&self, other: &Str) -> cmp::Ordering {
         let (a, b): (&str, &str) = (self.as_ref(), other.as_ref());
         a.cmp(b)
     }
@@ -778,7 +778,7 @@ impl FlatBufferBuilder {
         self.buf.fill(padding_bytes(size + len, align));
     }
 
-    pub fn create_string(&mut self, s: &str) -> Offset<String> {
+    pub fn create_string(&mut self, s: &str) -> Offset<Str> {
         self.not_nested();
 
         self.pre_align(s.len() + 1, mem::size_of::<UOffset>());
