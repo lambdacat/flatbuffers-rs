@@ -1,11 +1,11 @@
 // Copyright 2015 Sam Payson. All rights reserved.
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,6 +22,7 @@ use std::mem;
 use std::slice;
 use std::str;
 
+// Return a byte slice which refers to the same region of memory as `v`.
 fn view_slice_bytes<T>(v: &[T]) -> &[u8] {
     unsafe {
         let ptr = mem::transmute::<&T, *const u8>(&v[0]);
@@ -31,6 +32,7 @@ fn view_slice_bytes<T>(v: &[T]) -> &[u8] {
     }
 }
 
+// Return a byte slice which refers to the same region of memory as `t`.
 fn view_bytes<T>(t: &T) -> &[u8] {
     unsafe {
         let ptr = mem::transmute::<&T, *const u8>(t);
@@ -40,12 +42,16 @@ fn view_bytes<T>(t: &T) -> &[u8] {
     }
 }
 
+/// An unsigned offset
 pub type UOffset = u32;
 
+/// A signed offset
 pub type SOffset = i32;
 
+/// A vtable offset, used for indexing the fields of a Table
 pub type VOffset = u16;
 
+/// This is a trait for primitives which can be loaded and stored as aligned little-endian values.
 pub trait Endian: Copy + PartialEq {
     unsafe fn read_le(buf: *const u8) -> Self;
     unsafe fn write_le(self, buf: *mut u8);
@@ -61,7 +67,7 @@ pub trait Endian: Copy + PartialEq {
 //             let ptr: &T = unsafe { mem::transmute(&buf[0]) };
 //             num::PrimInt::from_le(*ptr)
 //         }
-//     
+//
 //         fn write_le(self, buf: &mut [u8]) {
 //             let ptr: &mut T = unsafe { mem::transmute(&mut buf[0]) };
 //             *ptr = self.to_le();
@@ -175,39 +181,47 @@ impl<T> Endian for Offset<T> {
     }
 }
 
+// If `base` were a pointer to an array of type T, return a pointer to element `idx` of that array.
 unsafe fn index<T>(base: *const u8, idx: usize) -> *const u8 {
     let base_us = mem::transmute::<*const u8, usize>(base);
 
     mem::transmute::<usize, *const u8>(base_us + idx * mem::size_of::<T>())
 }
 
+// Return a pointer to a byte whose address is `off` bytes beyond `base`.
 unsafe fn offset(base: *const u8, off: usize) -> *const u8 {
     let base_us = mem::transmute::<*const u8, usize>(base);
 
     mem::transmute::<usize, *const u8>(base_us + off)
 }
 
+// This is like `offset`, except it returns a mutable pointer.
 unsafe fn offset_mut(base: *mut u8, off: usize) -> *mut u8 {
     let base_us = mem::transmute::<*mut u8, usize>(base);
 
     mem::transmute::<usize, *mut u8>(base_us + off)
 }
 
+// This is like `offset` except it allows negative offsets.
 unsafe fn soffset(base: *const u8, off: isize) -> *const u8 {
     let base_is = mem::transmute::<*const u8, isize>(base);
 
     mem::transmute::<isize, *const u8>(base_is + off)
 }
 
-
+// Read a little endian `T` pointed to by `buf`. `buf` must point to a properly aligned value.
 unsafe fn read_scalar<T: Endian>(buf: *const u8) -> T {
     Endian::read_le(buf)
 }
 
+// Write a little endian `T` to the buffer pointer to by `buf`. `buf` must point to a properly
+// aligned buffer.
 unsafe fn write_scalar<T: Endian>(buf: *mut u8, val: T) {
     val.write_le(buf)
 }
 
+/// A trait which determines how a type is retrieved from a flatbuffer. See the implementations for
+/// `T`, `Offset<T>`, and `ByRef<T>` for examples.
 pub trait Indirect<I> {
     unsafe fn read(buf: *const u8, idx: usize) -> I;
 }
@@ -267,6 +281,7 @@ pub struct Vector<T, I = T> where T: Indirect<I> {
     _i:     marker::PhantomData<I>,
 }
 
+/// An iterator to a Vector in a flatbuffer.
 pub struct VecIter<'x, I: 'x, T: Indirect<I> + 'x> {
     vec: &'x Vector<T, I>,
     idx: usize,
@@ -439,13 +454,18 @@ impl Table {
     }
 }
 
+/// A trait for Tables which can be compared for order (i.e. which have a field with the `key`
+/// attribute).
 pub trait OrdTable {
     fn key_cmp(&self, rhs: &Self) -> cmp::Ordering;
 }
 
+/// This type is used internally by the generated types for flatbuffer structs. Its methods allow
+/// access to various different types of struct fields.
 pub struct Struct;
 
 impl Struct {
+    /// Return a scalar field, reading it directly from the buffer.
     pub fn get_field<T: Endian>(&self, off: UOffset) -> T {
         unsafe {
             let base = mem::transmute::<&Struct, *const u8>(self);
@@ -453,6 +473,11 @@ impl Struct {
         }
     }
 
+    /// Return a reference to a field which is stored as a `UOffset`.
+    ///
+    /// # Notes
+    ///
+    /// Is this function ever used? Aren't structs supposed to be fixed-size?
     pub fn get_ref<T>(&self, off: UOffset) -> &T {
         unsafe {
             let base = mem::transmute::<&Struct, *const u8>(self);
@@ -462,6 +487,7 @@ impl Struct {
         }
     }
 
+    /// Like `get_ref`, but the reference is mutable.
     pub fn get_ref_mut<T>(&mut self, off: UOffset) -> &mut T {
         unsafe {
             let base = mem::transmute::<&mut Struct, *mut u8>(self);
@@ -471,6 +497,7 @@ impl Struct {
         }
     }
 
+    /// Get a pointer to a struct field.
     pub fn get_struct<T>(&self, off: UOffset) -> &T {
         unsafe {
             let base = mem::transmute::<&Struct, *const u8>(self);
@@ -479,6 +506,7 @@ impl Struct {
         }
     }
 
+    /// Like `get_struct`, but the reference is mutable.
     pub fn get_struct_mut<T>(&mut self, off: UOffset) -> &mut T {
         unsafe {
             let base = mem::transmute::<&mut Struct, *mut u8>(self);
@@ -488,6 +516,7 @@ impl Struct {
     }
 }
 
+/// Return a pointer to the root object stored in this buffer, interpreting it as type `T`.
 pub fn get_root<T>(buf: &[u8]) -> &T {
     unsafe {
         let base         = buf.as_ptr();
@@ -533,6 +562,8 @@ impl VecDownward {
         self.next = self.inner.len();
     }
 
+    // Adds space to the front of the vector, growing towards lower addresses. The returned `usize`
+    // is the offset from the end of the buffer (e.g. the highest address).
     fn make_space(&mut self, len: usize) -> usize {
         if len > self.next {
             let mut new = Vec::with_capacity(2*self.len() + len);
@@ -554,6 +585,7 @@ impl VecDownward {
         self.next
     }
 
+    // Append some raw bytes to the front of the buffer.
     fn push(&mut self, dat: &[u8]) {
         let off = self.make_space(dat.len());
 
@@ -562,6 +594,7 @@ impl VecDownward {
         }
     }
 
+    // Add `len` *NUL* bytes to the front of the buffer.
     fn fill(&mut self, len: usize) {
         let off = self.make_space(len);
 
@@ -570,25 +603,32 @@ impl VecDownward {
         }
     }
 
+    // Remove `len` bytes from the front of the buffer.
     fn pop(&mut self, len: usize) {
         self.next += len;
     }
 }
 
+// Given a field's ID number, convert it to a VOffset
 fn field_index_to_offset(field_id: VOffset) -> VOffset {
     let fixed_fields = 2; // VTable size and Object size.
     (field_id + fixed_fields) * (mem::size_of::<VOffset>() as VOffset)
 }
 
+// Return the number of bytes needed to pad a scalar for alignment (see usage in e.g.
+// `FlatBufferBuilder::align(..)`).
 fn padding_bytes(buf_size: usize, scalar_size: usize) -> usize {
     (!buf_size).wrapping_add(1) & (scalar_size - 1)
 }
 
+// The location of a field, stored as a UOffset from the end of the buffer and a field ID.
 struct FieldLoc {
     off: UOffset,
     id:  VOffset,
 }
 
+/// This type is used by the generated `.*Builder` types for Tables. A `FlatBufferBuilder` can be
+/// re-used if the `clear()` method is called between uses; this will avoid some allocations.
 pub struct FlatBufferBuilder {
     buf:            VecDownward,
     offset_buf:     Vec<FieldLoc>,
@@ -608,6 +648,8 @@ impl FlatBufferBuilder {
         }
     }
 
+    /// Prepare to build another FlatBuffer from scratch (forgetting everything about any previous
+    /// FlatBuffer), but reuse the memory from the internal buffers to avoid extra reallocations.
     pub fn clear(&mut self) {
         self.buf.clear();
         self.offset_buf.clear();
@@ -621,6 +663,7 @@ impl FlatBufferBuilder {
 
     pub fn get_buffer(&self) -> &[u8] { self.buf.data() }
 
+    /// Determines whether or not default values should be hard-coded into the wire representation.
     pub fn force_defaults(&mut self, fd: bool) {
         self.force_defaults = fd;
     }
@@ -726,7 +769,7 @@ impl FlatBufferBuilder {
         for field_loc in self.offset_buf.iter() {
             let pos = (vtable_offset_loc as VOffset) - (field_loc.off as VOffset);
 
-            unsafe { 
+            unsafe {
                 let buf_ref = &mut self.buf.data_mut()[field_loc.id as usize];
                 let buf_ptr = mem::transmute::<&mut u8, *mut u8>(buf_ref);
                 assert_eq!(read_scalar::<VOffset>(buf_ptr), 0);
@@ -735,6 +778,10 @@ impl FlatBufferBuilder {
         }
 
         self.offset_buf.clear();
+
+        // What follows is the de-duping code. Might be able to speed this up with some kind of
+        // hash-table or something if it becomes a bottleneck since this implementation will take
+        // quadratic time WRT the number of distinct tables in the flatbuffer.
 
         let vt1: &[VOffset] = unsafe {
             let vt_ptr = mem::transmute::<&u8, *const VOffset>(&self.buf.data()[0]);
@@ -763,7 +810,7 @@ impl FlatBufferBuilder {
             self.vtables.push(vt_use);
         }
 
-        
+
         unsafe {
             let vt_buf = &mut self.buf.data_at_mut(vtable_offset_loc as usize)[0];
             write_scalar(mem::transmute::<*mut u8, &mut u8>(vt_buf),
