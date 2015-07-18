@@ -161,6 +161,22 @@ impl Endian for f64 {
     }
 }
 
+impl Endian for bool {
+    fn from_le(self) -> bool { self }
+
+    fn to_le(self) -> bool { self }
+
+    unsafe fn read_le(buf: *const u8) -> bool {
+        let ptr = mem::transmute::<*const u8, &bool>(buf);
+        *ptr
+    }
+
+    unsafe fn write_le(self, buf: *mut u8) {
+        let ptr = mem::transmute::<*mut u8, &mut bool>(buf);
+        *ptr = self;
+    }
+}
+
 impl<T> Endian for Offset<T> {
     fn from_le(self) -> Offset<T> {
         Offset::new(num::PrimInt::from_le(self.inner))
@@ -547,6 +563,7 @@ impl VecDownward {
 
     fn data_mut(&mut self) -> &mut [u8] { &mut self.inner[self.next..] }
 
+    // TODO: Implement Index and IndexMut traits?
     fn data_at(&self, offset: usize) -> &[u8] {
         &self.inner[self.inner.len() - offset..]
     }
@@ -715,6 +732,7 @@ impl FlatBufferBuilder {
     }
 
     pub fn track_field(&mut self, field: VOffset, off: UOffset) {
+        // TODO: Make field an index and compute offset with field_index_to_offset.
         self.offset_buf.push(FieldLoc{off: off, id: field})
     }
 
@@ -755,7 +773,7 @@ impl FlatBufferBuilder {
     }
 
     pub fn end_table(&mut self, start: UOffset, num_fields: VOffset) -> UOffset {
-        let vtable_offset_loc = self.push_scalar::<SOffset>(0);
+        let vtable_offset_loc = self.push_scalar(0 as SOffset);
 
         self.buf.fill((num_fields as usize) * mem::size_of::<VOffset>());
 
@@ -766,8 +784,8 @@ impl FlatBufferBuilder {
         self.push_scalar(table_object_size as VOffset);
         self.push_scalar(field_index_to_offset(num_fields));
 
-        for field_loc in self.offset_buf.iter() {
-            let pos = (vtable_offset_loc as VOffset) - (field_loc.off as VOffset);
+        for field_loc in &self.offset_buf {
+            let pos = (vtable_offset_loc as u32 - field_loc.off) as VOffset;
 
             unsafe {
                 let buf_ref = &mut self.buf.data_mut()[field_loc.id as usize];
@@ -783,8 +801,9 @@ impl FlatBufferBuilder {
         // hash-table or something if it becomes a bottleneck since this implementation will take
         // quadratic time WRT the number of distinct tables in the flatbuffer.
 
-        let vt1: &[VOffset] = unsafe {
-            let vt_ptr = mem::transmute::<&u8, *const VOffset>(&self.buf.data()[0]);
+        // TODO: Can we get a VOffset instead?
+        let vt1: &[u8] = unsafe {
+            let vt_ptr = mem::transmute::<&u8, *const u8>(&self.buf.data()[0]);
             let vt_len = *vt_ptr as usize;
             slice::from_raw_parts(vt_ptr, vt_len)
         };
@@ -792,8 +811,9 @@ impl FlatBufferBuilder {
         let mut vt_use = self.get_size() as UOffset;
 
         for &off in self.vtables.iter() {
-            let vt2: &[VOffset] = unsafe {
-                let vt_ptr = mem::transmute::<&u8, *const VOffset>(&self.buf.data_at(off as usize)[0]);
+            // TODO: Can we get a VOffset instead?
+            let vt2: &[u8] = unsafe {
+                let vt_ptr = mem::transmute::<&u8, *const u8>(&self.buf.data_at(off as usize)[0]);
                 let vt_len = *vt_ptr as usize;
                 slice::from_raw_parts(vt_ptr, vt_len)
             };
@@ -809,7 +829,6 @@ impl FlatBufferBuilder {
         if vt_use == self.get_size() as UOffset {
             self.vtables.push(vt_use);
         }
-
 
         unsafe {
             let vt_buf = &mut self.buf.data_at_mut(vtable_offset_loc as usize)[0];
@@ -904,5 +923,544 @@ impl FlatBufferBuilder {
         self.pre_align(mem::size_of::<UOffset>(), min_align);
         let refer = self.refer_to(root.inner);
         self.push_scalar(refer);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::mem;
+
+    use super::*;
+
+    #[test]
+    fn test_numbers() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        builder.push_scalar(true);
+        assert_eq!(builder.get_buffer(), [1]);
+        builder.push_scalar(-127i8);
+        assert_eq!(builder.get_buffer(), [129, 1]);
+        builder.push_scalar(255u8);
+        assert_eq!(builder.get_buffer(), [255, 129, 1]);
+        builder.push_scalar(-32222i16);
+        assert_eq!(builder.get_buffer(), [0x22, 0x82, 0, 255, 129, 1]);
+        builder.push_scalar(0xFEEEu16);
+        assert_eq!(builder.get_buffer(), [0xEE, 0xFE, 0x22, 0x82, 0, 255, 129, 1]);
+        builder.push_scalar(-53687092i32);
+        assert_eq!(builder.get_buffer(), [204, 204, 204, 252, 0xEE, 0xFE, 0x22,
+                                          0x82, 0, 255, 129, 1]);
+        builder.push_scalar(0x98765432u32);
+        assert_eq!(builder.get_buffer(), [0x32, 0x54, 0x76, 0x98,
+                                          204, 204, 204, 252,
+                                          0xEE, 0xFE, 0x22, 0x82,
+                                          0, 255, 129, 1]);
+    }
+
+    #[test]
+    fn test_numbers64() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.push_scalar(0x1122334455667788u64);
+        assert_eq!(builder.get_buffer(), [0x88, 0x77, 0x66, 0x55,
+                                          0x44, 0x33, 0x22, 0x11]);
+
+        builder = FlatBufferBuilder::new(0);
+        builder.push_scalar(0x1122334455667788i64);
+        assert_eq!(builder.get_buffer(), [0x88, 0x77, 0x66, 0x55,
+                                          0x44, 0x33, 0x22, 0x11]);
+    }
+
+    #[test]
+    fn test_1xbyte_vector() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        builder.start_vector(1, mem::size_of::<u8>());
+        assert_eq!(builder.get_buffer(), [0, 0, 0]);
+        builder.push_scalar(1u8);
+        assert_eq!(builder.get_buffer(), [1, 0, 0, 0]);
+        builder.end_vector(1);
+        assert_eq!(builder.get_buffer(), [1, 0, 0, 0, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_2xbyte_vector() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        builder.start_vector(2, mem::size_of::<u8>());
+        assert_eq!(builder.get_buffer(), [0, 0]);
+        builder.push_scalar(1u8);
+        assert_eq!(builder.get_buffer(), [1, 0, 0]);
+        builder.push_scalar(2u8);
+        assert_eq!(builder.get_buffer(), [2, 1, 0, 0]);
+        builder.end_vector(2);
+        assert_eq!(builder.get_buffer(), [2, 0, 0, 0, 2, 1, 0, 0]);
+    }
+
+    #[test]
+    fn test_1xuint16_vector() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        builder.start_vector(1, mem::size_of::<u16>());
+        assert_eq!(builder.get_buffer(), [0, 0]);
+        builder.push_scalar(1u16);
+        assert_eq!(builder.get_buffer(), [1, 0, 0, 0]);
+        builder.end_vector(1);
+        assert_eq!(builder.get_buffer(), [1, 0, 0, 0, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_2xuint16_vector() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        builder.start_vector(2, mem::size_of::<u16>());
+        assert_eq!(builder.get_buffer(), []);
+        builder.push_scalar(0xABCDu16);
+        assert_eq!(builder.get_buffer(), [0xCD, 0xAB]);
+        builder.push_scalar(0xDCBAu16);
+        assert_eq!(builder.get_buffer(), [0xBA, 0xDC, 0xCD, 0xAB]);
+        builder.end_vector(2);
+        assert_eq!(builder.get_buffer(), [2, 0, 0, 0, 0xBA, 0xDC, 0xCD, 0xAB]);
+    }
+
+    #[test]
+    fn test_create_ascii_string() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.create_string("foo"); // TODO: Pass in a byte string?
+        assert_eq!(builder.get_buffer(), [3, 0, 0, 0, b'f', b'o', b'o', 0]);
+        builder.create_string("moop"); // TODO: Pass in a byte string?
+        assert_eq!(builder.get_buffer(), [4, 0, 0, 0, b'm', b'o', b'o', b'p',
+                                          0, 0, 0, 0,
+                                          3, 0, 0, 0, b'f', b'o', b'o', 0]);
+    }
+
+    #[test]
+    fn test_create_arbitrary_string() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.create_string("\x01\x02\x03");
+        assert_eq!(builder.get_buffer(), [3, 0, 0, 0, 1, 2, 3, 0]);
+        builder.create_string("\x04\x05\x06\x07");
+        assert_eq!(builder.get_buffer(), [4, 0, 0, 0, 4, 5, 6, 7,
+                                          0, 0, 0, 0,
+                                          3, 0, 0, 0, 1, 2, 3, 0]);
+    }
+
+    #[test]
+    fn test_empty_vtable() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        assert_eq!(builder.get_buffer(), []);
+        builder.end_table(start_offset, 0);
+        assert_eq!(builder.get_buffer(), [4, 0, 4, 0, 4, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_vtable_with_one_true_bool() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        let start_offset = builder.start_table();
+        assert_eq!(builder.get_buffer(), []);
+        builder.add_scalar(4, true, false);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            8, 0, // Length of object, including vtable offset
+            7, 0, // Start of bool value
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+            0, 0, 0, // Padded to 4 bytes
+            1, // Bool value
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_one_default_bool() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        let start_offset = builder.start_table();
+        assert_eq!(builder.get_buffer(), []);
+        builder.add_scalar(4, false, false);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            4, 0, // End of object from here
+            0, 0, // Entry 1 is zero
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_one_int16() {
+        let mut builder = FlatBufferBuilder::new(0);
+        assert_eq!(builder.get_buffer(), []);
+        let start_offset = builder.start_table();
+        assert_eq!(builder.get_buffer(), []);
+        builder.add_scalar(4, 0x789Ai16, 0);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            8, 0, // End of object from here
+            6, 0, // Offset to value
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+            0, 0, // Padded to 4 bytes
+            0x9A, 0x78,
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_two_int16() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 0x3456i16, 0);
+        builder.add_scalar(6, 0x789Ai16, 0);
+        builder.end_table(start_offset, 2);
+        assert_eq!(builder.get_buffer(), [
+            8, 0, // vtable bytes
+            8, 0, // End of object from here
+            6, 0, // Offset to value 0
+            4, 0, // Offset to value 1
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+            0x9A, 0x78, // Value 1
+            0x56, 0x34, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_int16_and_bool() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 0x3456i16, 0);
+        builder.add_scalar(6, true, false);
+        builder.end_table(start_offset, 2);
+        assert_eq!(builder.get_buffer(), [
+            8, 0, // vtable bytes
+            8, 0, // End of object from here
+            6, 0, // Offset to value 0
+            5, 0, // Offset to value 1
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+            0, // Padding
+            1, // Value 1
+            0x56, 0x34, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_empty_vector() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.start_vector(0, mem::size_of::<u8>());
+        let vec_offset = Offset::<Vector<u8>>::new(builder.end_vector(0));
+        let start_offset = builder.start_table();
+        builder.add_offset(4, vec_offset);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            8, 0, // End of object from here
+            4, 0, // Offset to vector offset
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+            4, 0, 0, 0,
+            0, 0, 0, 0 // Length of vector (not in struct)
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_empty_vector_of_byte_and_some_scalars() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.start_vector(0, mem::size_of::<u8>());
+        let vec_offset = Offset::<Vector<u8>>::new(builder.end_vector(0));
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 55i16, 0);
+        builder.add_offset(6, vec_offset);
+        builder.end_table(start_offset, 2);
+        assert_eq!(builder.get_buffer(), [
+            8, 0, // vtable bytes
+            12, 0,
+            10, 0, // Offset to value 0
+            4, 0, // Offset to vector offset
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+            8, 0, 0, 0, // Value 1
+            0, 0, 55, 0, // Value 0
+
+            0, 0, 0, 0, // Length of vector (not in struct)
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_1_int16_and_2vector_of_int16() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.start_vector(2, mem::size_of::<i16>());
+        builder.push_scalar(0x1234i16);
+        builder.push_scalar(0x5678i16);
+        let vec_offset = Offset::<Vector<i16>>::new(builder.end_vector(2));
+        let start_offset = builder.start_table();
+        builder.add_offset(6, vec_offset);
+        builder.add_scalar(4, 55i16, 0);
+        builder.end_table(start_offset, 2);
+        assert_eq!(builder.get_buffer(), [
+            8, 0, // vtable bytes
+            12, 0,
+            6, 0, // Start of value 0 from end of vtable
+            8, 0, // Start of value 1 from end of buffer
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+            0, 0, // Padding
+            55, 0, // Value 0
+            4, 0, 0, 0, // Vector position from here
+            2, 0, 0, 0, // Length of vector (uint32)
+            0x78, 0x56, // Vector value 1
+            0x34, 0x12, // Vector value 0
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_1_struct_of_1_int8_1_int16_1_int32() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.align(4 + 4 + 4);
+        builder.push_scalar(55i8);
+        builder.pad(3);
+        builder.push_scalar(0x1234i16);
+        builder.pad(2);
+        builder.push_scalar(0x12345678i32);
+        let struct_offset = builder.get_size() as UOffset;
+        builder.add_struct_offset(4, struct_offset);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            16, 0, // End of object from here
+            4, 0, // Start of struct from here
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+            0x78, 0x56, 0x34, 0x12, // Value 2
+            0, 0, // Padding
+            0x34, 0x12, // Value 1
+            0, 0, 0, // Padding
+            55, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_with_1_vector_of_2_struct_of_2_int8() {
+        let mut builder = FlatBufferBuilder::new(0);
+        builder.start_vector(2, mem::size_of::<i16>() * 2);
+        builder.push_scalar(33i8);
+        builder.push_scalar(44i8);
+        builder.push_scalar(55i8);
+        builder.push_scalar(66i8);
+        let vec_offset = Offset::<Vector<i16>>::new(builder.end_vector(2));
+        let start_offset = builder.start_table();
+        builder.add_offset(4, vec_offset);
+        builder.end_table(start_offset, 1);
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            8, 0, // End of object from here
+            4, 0, // Offset of vector offset
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+            4, 0, 0, 0, // Vector start offset
+
+            2, 0, 0, 0, // Vector length
+            66, // Vector value 1,1
+            55, // Vector value 1,0
+            44, // Vector value 0,1
+            33, // Vector value 0,0
+        ]);
+    }
+
+    #[test]
+    fn test_table_with_some_elements() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 33i8, 0);
+        builder.add_scalar(6, 66i16, 0);
+        let offset = Offset::<Table>::new(builder.end_table(start_offset, 2));
+        builder.finish(offset);
+
+        assert_eq!(builder.get_buffer(), [
+            12, 0, 0, 0, // Root of table, points to vtable offset
+
+            8, 0, // vtable bytes
+            8, 0, // End of object from here
+            7, 0, // Start of value 0
+            4, 0, // Start of value 1
+
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+
+            66, 0, // Value 1
+            0, // Padding
+            33, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_one_unfinished_table_and_one_finished_table() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 33i8, 0);
+        builder.add_scalar(6, 44i8, 0);
+        let offset = Offset::<Table>::new(builder.end_table(start_offset, 2));
+        builder.finish(offset);
+
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 55i8, 0);
+        builder.add_scalar(6, 66i8, 0);
+        builder.add_scalar(8, 77i8, 0);
+        let offset = Offset::<Table>::new(builder.end_table(start_offset, 3));
+        builder.finish(offset);
+
+        assert_eq!(builder.get_buffer(), &vec![
+            16, 0, 0, 0, // Root of table, points to vtable offset
+            0, 0, // Padding
+
+            10, 0, // vtable bytes
+            8, 0, // Size of table
+            7, 0, // Start of value 0
+            6, 0, // Start of value 1
+            5, 0, // Start of value 2
+            10, 0, 0, 0, // Offset for start of vtable (int32)
+            0, // Padding
+            77, // Value 2
+            66, // Value 1
+            55, // Value 0
+
+            12, 0, 0, 0, // Root of table, points to vtable offset
+
+            8, 0, // vtable bytes
+            8, 0, // Size of table
+            7, 0, // Start of value 0
+            6, 0, // Start of value 1
+            8, 0, 0, 0, // Offset for start of vtable (int32)
+            0, 0, // Padding
+            44, // Value 1
+            33, // Value 0
+        ][..]);
+    }
+
+    #[test]
+    fn test_a_bunch_of_bools() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, true, false);
+        builder.add_scalar(6, true, false);
+        builder.add_scalar(8, true, false);
+        builder.add_scalar(10, true, false);
+        builder.add_scalar(12, true, false);
+        builder.add_scalar(14, true, false);
+        builder.add_scalar(16, true, false);
+        builder.add_scalar(18, true, false);
+        let offset = Offset::<Table>::new(builder.end_table(start_offset, 8));
+        builder.finish(offset);
+
+        assert_eq!(builder.get_buffer(), &vec![
+            24, 0, 0, 0, // Root of table, points to vtable offset
+
+            20, 0, // vtable bytes
+            12, 0, // Size of table
+            11, 0, // Start of value 0
+            10, 0, // Start of value 1
+            9, 0, // Start of value 2
+            8, 0, // Start of value 3
+            7, 0, // Start of value 4
+            6, 0, // Start of value 5
+            5, 0, // Start of value 6
+            4, 0, // Start of value 7
+            20, 0, 0, 0, // Offset for start of vtable (int32)
+
+            1, // Value 7
+            1, // Value 6
+            1, // Value 5
+            1, // Value 4
+            1, // Value 3
+            1, // Value 2
+            1, // Value 1
+            1, // Value 0
+        ][..]);
+    }
+
+    #[test]
+    fn test_three_bools() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, true, false);
+        builder.add_scalar(6, true, false);
+        builder.add_scalar(8, true, false);
+        let offset = Offset::<Table>::new(builder.end_table(start_offset, 3));
+        builder.finish(offset);
+
+        assert_eq!(builder.get_buffer(), [
+            16, 0, 0, 0, // Root of table, points to vtable offset
+
+            0, 0, // Padding
+
+            10, 0, // vtable bytes
+            8, 0, // Size of table
+            7, 0, // Start of value 0
+            6, 0, // Start of value 1
+            5, 0, // Start of value 2
+            10, 0, 0, 0, // Offset for start of vtable (int32)
+
+            0, // Padding
+            1, // Value 2
+            1, // Value 1
+            1, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_some_floats() {
+        let mut builder = FlatBufferBuilder::new(0);
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 1.0f32, 0.0);
+        builder.end_table(start_offset, 1);
+
+        assert_eq!(builder.get_buffer(), [
+            6, 0, // vtable bytes
+            8, 0, // Size of table
+            4, 0, // Start of value 0
+            6, 0, 0, 0, // Offset for start of vtable (int32)
+
+            0, 0, 128, 63, // Value 0
+        ]);
+    }
+
+    #[test]
+    fn test_vtable_deduplication() {
+        let mut builder = FlatBufferBuilder::new(0);
+
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 0u8, 0);
+        builder.add_scalar(6, 11u8, 0);
+        builder.add_scalar(8, 22u8, 0);
+        builder.add_scalar(10, 33i16, 0);
+        builder.end_table(start_offset, 4);
+
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 0u8, 0);
+        builder.add_scalar(6, 44u8, 0);
+        builder.add_scalar(8, 55u8, 0);
+        builder.add_scalar(10, 66i16, 0);
+        builder.end_table(start_offset, 4);
+
+        let start_offset = builder.start_table();
+        builder.add_scalar(4, 0u8, 0);
+        builder.add_scalar(6, 77u8, 0);
+        builder.add_scalar(8, 88u8, 0);
+        builder.add_scalar(10, 99i16, 0);
+        builder.end_table(start_offset, 4);
+
+        //let got = builder.get_buffer();
+        assert_eq!(builder.get_buffer(), &vec![
+            240, 255, 255, 255, // -12, offset to dedupped vtable
+            99, 0,
+            88,
+            77,
+            248, 255, 255, 255, // -8, offset to dedupped vtable
+            66, 0,
+            55,
+            44,
+            12, 0,
+            8, 0,
+            0, 0,
+            7, 0,
+            6, 0,
+            4, 0,
+            12, 0, 0, 0,
+            33, 0,
+            22,
+            11,
+        ][..]);
     }
 }
