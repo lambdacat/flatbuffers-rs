@@ -260,8 +260,9 @@ impl <'x, T> Indirect<&'x T> for ByRef<T> {
 
 impl<'x, T> Indirect<&'x T> for Offset<T> {
     unsafe fn read(buf: *const u8, idx: usize) -> &'x T {
-        let off: UOffset = read_scalar(index::<UOffset>(buf, idx));
-        mem::transmute::<*const u8, &'x T>(offset(buf, off as usize))
+        let ptr = index::<UOffset>(buf, idx);
+        let off: UOffset = read_scalar(ptr);
+        mem::transmute::<*const u8, &'x T>(offset(ptr, off as usize))
     }
 }
 
